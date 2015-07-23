@@ -102,7 +102,7 @@ port_INLINE uint8_t processIE_prependSlotframeLinkIE(OpenQueueEntry_t* pkt){
  
    //===== shared cells
    
-   linkOption = (1<<FLAG_TX_S)|(1<<FLAG_RX_S)|(1<<FLAG_SHARED_S);
+   linkOption = (1<<FLAG_TX_S)|(1<<FLAG_RX_S)|(1<<FLAG_SHARED_S)|(1<<FLAG_TIMEKEEPING_S);
    for (slotOffset=lastSlotOffset;slotOffset>SCHEDULE_MINIMAL_6TISCH_SLOTOFFSET;slotOffset--) {
       packetfunctions_reserveHeaderSize(pkt,5);
       pkt->payload[0]   = (slotOffset-1)        & 0xFF;
@@ -339,8 +339,8 @@ port_INLINE uint8_t processIE_prependScheduleIE(
          packetfunctions_reserveHeaderSize(pkt,5); 
          pkt->payload[0] = (uint8_t)(cellList[i].tsNum  & 0x00FF);
          pkt->payload[1] = (uint8_t)((cellList[i].tsNum & 0xFF00)>>8);
-         pkt->payload[0] = (uint8_t)(cellList[i].choffset  & 0x00FF);
-         pkt->payload[1] = (uint8_t)((cellList[i].choffset & 0xFF00)>>8);
+         pkt->payload[2] = (uint8_t)(cellList[i].choffset  & 0x00FF);
+         pkt->payload[3] = (uint8_t)((cellList[i].choffset & 0xFF00)>>8);
          pkt->payload[4] = cellList[i].linkoptions;
          len += 5;
          numOfCells++;

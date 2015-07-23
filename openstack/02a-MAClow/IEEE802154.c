@@ -48,7 +48,6 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
                               open_addr_t*      nextHop) {
    uint8_t temp_8b;
    uint8_t ielistpresent = IEEE154_IELIST_NO;
-   uint8_t frameVersion;
    bool    securityEnabled;
    int16_t timeCorrection;
    header_IE_ht header_desc;
@@ -62,7 +61,6 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
    // add termination IE accordingly 
    if (payloadIEPresent == TRUE) {
        ielistpresent = IEEE154_IELIST_YES; 
-       frameVersion  = IEEE154_FRAMEVERSION;
        //add header termination IE (id=0x7e)
        packetfunctions_reserveHeaderSize(msg,TerminationIE_Length);
        msg->payload[0] = Header_PayloadIE_TerminationIE         & 0xFF;
@@ -78,22 +76,18 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
            // no need for termination IE.
            if (headerIEPresent == TRUE){
                ielistpresent = IEEE154_IELIST_YES;
-               frameVersion  = IEEE154_FRAMEVERSION;
                packetfunctions_reserveHeaderSize(msg,TerminationIE_Length);
                msg->payload[0] = Header_Payload_TerminationIE        & 0xFF;
                msg->payload[1] = (Header_Payload_TerminationIE >> 8) & 0xFF;
            } else {
                // no header IE present, no payload IE, no termination IE
-               frameVersion = IEEE154_FRAMEVERSION_2006;
            }
        } else {
            // no payload, termination IE is omitted. check whether timeCorrection IE
            // presents. 
            if (frameType != IEEE154_TYPE_ACK) {
-               frameVersion = IEEE154_FRAMEVERSION_2006;
            } else {
                ielistpresent = IEEE154_IELIST_YES; // I will have a timeCorrection IE later
-               frameVersion = IEEE154_FRAMEVERSION;
            }
        }
   }
@@ -102,7 +96,6 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
        timeCorrection = (int16_t)(ieee154e_getTimeCorrection());
        // add the payload to the ACK (i.e. the timeCorrection)
        packetfunctions_reserveHeaderSize(msg,sizeof(timecorrection_IE_ht));
-       timeCorrection  = -timeCorrection;
        timeCorrection *= US_PER_TICK;
        msg->payload[0] = (uint8_t)((((uint16_t)timeCorrection)   ) & 0xff);
        msg->payload[1] = (uint8_t)((((uint16_t)timeCorrection)>>8) & 0xff);
@@ -146,9 +139,11 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
    }
    // destpan -- se page 41 of 15.4-2011 std. DEST PANID only sent as it is equal to SRC PANID
    packetfunctions_writeAddress(msg,idmanager_getMyID(ADDR_PANID),OW_LITTLE_ENDIAN);
+   
    //dsn
    packetfunctions_reserveHeaderSize(msg,sizeof(uint8_t));
    *((uint8_t*)(msg->payload)) = sequenceNumber;
+
    //fcf (2nd byte)
    packetfunctions_reserveHeaderSize(msg,sizeof(uint8_t));
    temp_8b              = 0;
@@ -168,7 +163,8 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
    temp_8b             |= IEEE154_ADDR_EXT                << IEEE154_FCF_SRC_ADDR_MODE;
    //poipoi xv IE list present
    temp_8b             |= ielistpresent                   << IEEE154_FCF_IELIST_PRESENT;
-   temp_8b             |= frameVersion                    << IEEE154_FCF_FRAME_VERSION;
+   temp_8b             |= IEEE154_FRAMEVERSION_2012       << IEEE154_FCF_FRAME_VERSION;
+   temp_8b             |= IEEE154_DSN_SUPPRESSION_NO      << IEEE154_FCF_DSN_SUPPRESSION;
      
    *((uint8_t*)(msg->payload)) = temp_8b;
    //fcf (1st byte)
@@ -182,7 +178,7 @@ void ieee802154_prependHeader(OpenQueueEntry_t* msg,
    } else {
       temp_8b          |= IEEE154_ACK_YES_ACK_REQ         << IEEE154_FCF_ACK_REQ;
    }
-   temp_8b             |= IEEE154_PANID_COMPRESSED      << IEEE154_FCF_INTRAPAN;
+   temp_8b             |= IEEE154_PANID_UNCOMPRESSED      << IEEE154_FCF_INTRAPAN;
    *((uint8_t*)(msg->payload)) = temp_8b;
 }
 
@@ -223,8 +219,9 @@ void ieee802154_retrieveHeader(OpenQueueEntry_t*      msg,
    //poipoi xv IE list present
    ieee802514_header->ieListPresent  = (temp_8b >> IEEE154_FCF_IELIST_PRESENT     ) & 0x01;//1b
    ieee802514_header->frameVersion   = (temp_8b >> IEEE154_FCF_FRAME_VERSION      ) & 0x03;//2b
+   ieee802514_header->dsn_suppressed = (temp_8b >> IEEE154_FCF_DSN_SUPPRESSION    ) & 0x01;//1b
 
-   if (ieee802514_header->ieListPresent==TRUE && ieee802514_header->frameVersion!=IEEE154_FRAMEVERSION){
+   if (ieee802514_header->ieListPresent==TRUE && ieee802514_header->frameVersion!=IEEE154_FRAMEVERSION_2012){
        return; //invalid packet accordint to p.64 IEEE15.4e
    }
    
@@ -261,10 +258,14 @@ void ieee802154_retrieveHeader(OpenQueueEntry_t*      msg,
          return; // this is an invalid packet, return
    }
    ieee802514_header->headerLength += 1;
-   // sequenceNumber
-   if (ieee802514_header->headerLength>msg->length) { return; } // no more to read!
-   ieee802514_header->dsn  = *((uint8_t*)(msg->payload)+ieee802514_header->headerLength);
-   ieee802514_header->headerLength += 1;
+   
+   if (ieee802514_header->dsn_suppressed==FALSE) {
+       // sequenceNumber
+       if (ieee802514_header->headerLength>msg->length) { return; } // no more to read!
+       ieee802514_header->dsn  = *((uint8_t*)(msg->payload)+ieee802514_header->headerLength);
+       ieee802514_header->headerLength += 1;
+   }
+   
    // panID
    if (ieee802514_header->headerLength>msg->length) { return; } // no more to read!
    packetfunctions_readAddress(((uint8_t*)(msg->payload)+ieee802514_header->headerLength),
@@ -320,7 +321,7 @@ void ieee802154_retrieveHeader(OpenQueueEntry_t*      msg,
       // no need for a default, since case would have been caught above
    }
    
-   if (ieee802514_header->ieListPresent==TRUE && ieee802514_header->frameVersion!=IEEE154_FRAMEVERSION){
+   if (ieee802514_header->ieListPresent==TRUE && ieee802514_header->frameVersion!=IEEE154_FRAMEVERSION_2012){
        return; //invalid packet accordint to p.64 IEEE15.4e
    }
 
@@ -365,10 +366,12 @@ void ieee802154_retrieveHeader(OpenQueueEntry_t*      msg,
 
                        timeCorrection  = (int16_t)((uint16_t)byte1<<8 | (uint16_t)byte0);
                        timeCorrection  = (timeCorrection / (PORT_SIGNED_INT_WIDTH)US_PER_TICK);
-                       timeCorrection  = -timeCorrection;
                        
                        ieee802514_header->timeCorrection = timeCorrection;
                        ieee802514_header->headerLength  += len;
+
+                       // Record the position where we should start decrypting the ACK, if security is enabled
+                       msg->l2_payload = &msg->payload[ieee802514_header->headerLength];
                        break;
                    default:
                        break;
@@ -376,6 +379,7 @@ void ieee802154_retrieveHeader(OpenQueueEntry_t*      msg,
            }
            if (ieee802514_header->headerLength==msg->length) {
                // nothing left, no payloadIE, no payload, this is the end of packet!
+
                ieee802514_header->valid=TRUE;
                return;
            }
