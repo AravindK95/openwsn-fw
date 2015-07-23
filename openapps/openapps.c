@@ -10,6 +10,7 @@
 #include "c6t.h"
 #include "cinfo.h"
 #include "cleds.h"
+//#include "cmote.h"
 #include "cstorm.h"
 #include "cwellknown.h"
 #include "rrt.h"
@@ -32,6 +33,8 @@ void openapps_init(void) {
    c6t_init();
    cinfo_init();
    cleds__init();
+   cexample_init();
+//   cmote_init();
    cstorm_init();
    cwellknown_init();
    rrt_init();

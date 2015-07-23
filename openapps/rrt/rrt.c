@@ -197,7 +197,7 @@ void rrt_setGETRespMsg(OpenQueueEntry_t* msg, uint8_t registered) {
 }
 
 /**
- * if mote is 0, then send to the ringmater, defined by ipAddr_ringmaster
+ * if mote is 0, then send to the ringmaster, defined by ipAddr_ringmaster
 **/
 void rrt_sendCoAPMsg(char actionMsg, uint8_t *ipv6mote) {
       OpenQueueEntry_t* pkt;
